@@ -12,6 +12,10 @@ def _setup():
     lights.sort(key=lambda b: b.get_label())
     return api, lights
 
+def _strip_summary_label(strip) -> str:
+    zones = strip.get_color_zones()
+    return strip.get_label() + ' - ' + strip.get_product_name() + ' ' + strip.get_ip_addr() + ':' + str(strip.get_port()) + f' - Number of zones: {len(zones)}'
+
 
 def reset_white():
     api, lights = _setup()
@@ -35,6 +39,14 @@ def reset_black():
     strip.set_power(True)
     strip.set_zone_color(0, 23, [0, 0, 0, 3000], apply=True)
     # strip.set_power(False)
+
+
+def set_power(power: bool):
+    api, lights = _setup()
+    strips = [d for d in lights if d.supports_multizone()]
+    for s in strips:
+        print(_strip_summary_label(s))
+        s.set_power(power)
 
 
 def cycle():
@@ -102,16 +114,18 @@ def cycle_zone(zone_idx):
 
 
 def main():
+    set_power(False)
+    # set_power(True)
     # reset_white()
     # reset_dark()
-    reset_black()
+    # reset_black()
     # cycle()
     # cycle_zone(5)
     # cycle_zone(7)
     # fade(15)
-    fade2(16, lifxlan.BLUE, 3)
-    fade2(5, lifxlan.ORANGE, 2)
-    fade2(12, lifxlan.PURPLE, 4)
+    # fade2(16, lifxlan.BLUE, 3)
+    # fade2(5, lifxlan.ORANGE, 2)
+    # fade2(12, lifxlan.PURPLE, 4)
 
 
 async def async_fade(strip, zone_idx, color, iterations, delay):
@@ -205,7 +219,7 @@ async def async_main_both():
     all_tasks = []
     for strip in strips:
         all_zones = strip.get_color_zones()
-        print(strip.get_label(), '-', strip.get_product_name(), strip.get_ip_addr(), f'Number of zones: {len(all_zones)}')
+        print(_strip_summary_label(strip))
         strip.set_power(True)
         tasks = [asyncio.create_task(async_zone_fader(strip, idx, 5)) for idx in range(len(all_zones))]
         print(f'created {len(tasks)} tasks for {strip.get_label()}')
