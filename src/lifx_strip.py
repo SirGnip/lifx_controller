@@ -1,6 +1,7 @@
 '''
 Initial controller for LIFX Strip lights supporting basic functionality
 '''
+import argparse
 import random
 import time
 import lifxlan
@@ -13,13 +14,13 @@ MULTI_ZONE_LIGHTS = (
 )
 
 
-def _setup(discovery=True):
+def _setup(discover=True):
     api = lifxlan.LifxLAN()
-    if discovery:
+    if discover:
         print('Discovering lights')
         lights = api.get_lights()
     else:
-        print(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list')
+        print(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list of IP/MAC')
         lights = [lifxlan.MultiZoneLight(*dat) for dat in MULTI_ZONE_LIGHTS]
     lights.sort(key=lambda b: b.get_label())
     return api, lights
@@ -226,15 +227,15 @@ async def async_main2():
     strip.set_power(False)
 
 
-async def async_main_both():
-    api, lights = _setup(discovery=False)
+async def async_main_both(discover=False):
+    api, lights = _setup(discover=discover)
     strips = [d for d in lights if d.supports_multizone()]
     all_tasks = []
     for strip in strips:
         all_zones = strip.get_color_zones()
         print(_strip_summary_label(strip))
         strip.set_power(True)
-        tasks = [asyncio.create_task(async_zone_fader(strip, idx, 5)) for idx in range(len(all_zones))]
+        tasks = [asyncio.create_task(async_zone_fader(strip, idx, 3)) for idx in range(len(all_zones))]
         print(f'created {len(tasks)} tasks for {strip.get_label()}')
         all_tasks += tasks
     await asyncio.gather(*all_tasks)
@@ -243,8 +244,18 @@ async def async_main_both():
     print('done')
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--discover', action='store_true', default=False)
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
     # main()
     # asyncio.run(async_main())
     # asyncio.run(async_main2())
-    asyncio.run(async_main_both())
+    # asyncio.run(async_main_both())
+
+    # Command line interface
+    args = parse_args()
+    asyncio.run(async_main_both(args.discover))
