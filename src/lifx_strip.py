@@ -6,15 +6,28 @@ import time
 import lifxlan
 import asyncio
 
-def _setup():
+
+MULTI_ZONE_LIGHTS = (
+    ('d0:73:d5:77:29:56', '192.168.1.30'),
+    ('d0:73:d5:77:3f:ae', '192.168.1.31')
+)
+
+
+def _setup(discovery=True):
     api = lifxlan.LifxLAN()
-    lights = api.get_lights()
+    if discovery:
+        print('Discovering lights')
+        lights = api.get_lights()
+    else:
+        print(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list')
+        lights = [lifxlan.MultiZoneLight(*dat) for dat in MULTI_ZONE_LIGHTS]
     lights.sort(key=lambda b: b.get_label())
     return api, lights
 
+
 def _strip_summary_label(strip) -> str:
     zones = strip.get_color_zones()
-    return strip.get_label() + ' - ' + strip.get_product_name() + ' ' + strip.get_ip_addr() + ':' + str(strip.get_port()) + f' - Number of zones: {len(zones)}'
+    return strip.get_label() + ' - ' + strip.get_product_name() + ' ' + strip.get_ip_addr() + ':' + str(strip.get_port()) + ' ' + strip.get_mac_addr() + f' - Number of zones: {len(zones)}'
 
 
 def reset_white():
@@ -214,7 +227,7 @@ async def async_main2():
 
 
 async def async_main_both():
-    api, lights = _setup()
+    api, lights = _setup(discovery=False)
     strips = [d for d in lights if d.supports_multizone()]
     all_tasks = []
     for strip in strips:
