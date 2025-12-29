@@ -22,13 +22,19 @@ def _setup(discover=True):
     else:
         print(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list of IP/MAC')
         lights = [lifxlan.MultiZoneLight(*dat) for dat in MULTI_ZONE_LIGHTS]
+    for x in lights:
+        print(_device_summary_label(x))
     lights.sort(key=lambda b: b.get_label())
     return api, lights
 
 
+def _device_summary_label(device):
+    return device.get_label() + ' - ' + device.get_product_name() + ' ' + device.get_ip_addr() + ':' + str(device.get_port()) + ' ' + device.get_mac_addr()
+
+
 def _strip_summary_label(strip) -> str:
     zones = strip.get_color_zones()
-    return strip.get_label() + ' - ' + strip.get_product_name() + ' ' + strip.get_ip_addr() + ':' + str(strip.get_port()) + ' ' + strip.get_mac_addr() + f' - Number of zones: {len(zones)}'
+    return _device_summary_label(strip) + f' - Number of zones: {len(zones)}'
 
 
 def reset_white():
@@ -203,17 +209,10 @@ async def async_main():
     print('done')
     strip.set_power(False)
 
-async def async_zone_fader(strip, zone_idx, iterations):
-    # colors = [lifxlan.RED, lifxlan.ORANGE, lifxlan.YELLOW, lifxlan.GREEN, lifxlan.BLUE, lifxlan.PURPLE]  # rainbow
-    colors = [lifxlan.WHITE, lifxlan.WHITE, lifxlan.WHITE, lifxlan.BLUE, None, None, None, None]  # sparse cool
-    # colors = [lifxlan.GREEN, lifxlan.YELLOW]  # Packers
-    # colors = [lifxlan.RED, lifxlan.WHITE, lifxlan.BLUE, None, None, None, None, None, None, None]  # USA
-    # colors = [lifxlan.RED, lifxlan.YELLOW]  # warm
-    # colors = [lifxlan.RED, lifxlan.GREEN, None, None]  # Christmas
-
+async def async_zone_fader(strip, zone_idx, iterations, delay_min, delay_max, colors):
     for _ in light_iterator(iterations):
         color = random.choice(colors)
-        delay = random.uniform(4, 6)
+        delay = random.uniform(delay_min, delay_max)
         await base_fade(strip, zone_idx, color, delay)
 
 async def async_main2():
@@ -227,26 +226,58 @@ async def async_main2():
     strip.set_power(False)
 
 
-async def async_main_both(discover=False):
+async def async_main_both(discover, iterations, fade_min, fade_max, colors):
+    # Convert 'none' strings to None
+    colors = [None if c.lower() == 'none' else c for c in colors]
+
+    # logging
+    print(f'Starting with {len(colors)} colors: {[c for c in colors]}')
+    print(f'Fade duration: {fade_min}-{fade_max} seconds')
+    print(f'Iterations: {iterations if iterations is not None else "infinite"}')
+
+    # Convert colors to LIFX color names. If they don't have a match, this will explicitly fail.
+    colors = [None if c is None else getattr(lifxlan, c.upper()) for c in colors]
+
+    # Setup LIFX API
     api, lights = _setup(discover=discover)
     strips = [d for d in lights if d.supports_multizone()]
-    all_tasks = []
-    for strip in strips:
-        all_zones = strip.get_color_zones()
-        print(_strip_summary_label(strip))
-        strip.set_power(True)
-        tasks = [asyncio.create_task(async_zone_fader(strip, idx, 3)) for idx in range(len(all_zones))]
-        print(f'created {len(tasks)} tasks for {strip.get_label()}')
-        all_tasks += tasks
-    await asyncio.gather(*all_tasks)
-    for strip in strips:
-        strip.set_power(False)
-    print('done')
+    print(f'Found {len(strips)} strips')
+
+    # Schedule tasks to control fades (one async task controls each LIFX zone on each string of lights)
+    try:
+        all_tasks = []
+        for strip in strips:
+            all_zones = strip.get_color_zones()
+            print(_strip_summary_label(strip))
+            strip.set_power(True)
+            tasks = [asyncio.create_task(async_zone_fader(strip, idx, iterations, fade_min, fade_max, colors))
+                    for idx in range(len(all_zones))]
+            print(f'Created {len(tasks)} tasks for {strip.get_label()}')
+            all_tasks += tasks
+        
+        await asyncio.gather(*all_tasks)
+    except Exception as e:
+        print('Got error:', e)
+    finally:
+        print('Had an expected exit or an error. Powering off lights.')
+        for strip in strips:
+            strip.set_power(False)
+
+    print('Done')
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--discover', action='store_true', default=False)
+    parser = argparse.ArgumentParser(description='Control LIFX Strip lights with various effects')
+    parser.add_argument('--discover', action='store_true', default=False,
+                      help='Discover lights on the network (default: use pre-configured list)')
+    parser.add_argument('--iterations', type=int, default=2,
+                      help='Number of iterations to run (default: run forever)')
+    parser.add_argument('--fade-min', type=float, default=2.0,
+                      help='Minimum fade duration in seconds (default: 2.0)')
+    parser.add_argument('--fade-max', type=float, default=4.0,
+                      help='Maximum fade duration in seconds (default: 4.0)')
+    parser.add_argument('colors', nargs='*', default=['red'],
+                      help='List of color names to use (e.g., "red blue yellow none")')
     return parser.parse_args()
 
 
@@ -258,4 +289,11 @@ if __name__ == '__main__':
 
     # Command line interface
     args = parse_args()
-    asyncio.run(async_main_both(args.discover))
+    print(args)
+    asyncio.run(async_main_both(
+        discover=args.discover,
+        iterations=args.iterations,
+        fade_min=args.fade_min,
+        fade_max=args.fade_max,
+        colors=args.colors
+    ))
