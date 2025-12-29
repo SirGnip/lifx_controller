@@ -233,7 +233,7 @@ async def async_main_both(discover, iterations, fade_min, fade_max, colors):
     # logging
     print(f'Starting with {len(colors)} colors: {[c for c in colors]}')
     print(f'Fade duration: {fade_min}-{fade_max} seconds')
-    print(f'Iterations: {iterations if iterations is not None else "infinite"}')
+    print(f'Iterations: {iterations} {"(infinite)" if iterations is None else ""}')
 
     # Convert colors to LIFX color names. If they don't have a match, this will explicitly fail.
     colors = [None if c is None else getattr(lifxlan, c.upper()) for c in colors]
@@ -270,7 +270,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Control LIFX Strip lights with various effects')
     parser.add_argument('--discover', action='store_true', default=False,
                       help='Discover lights on the network (default: use pre-configured list)')
-    parser.add_argument('--iterations', type=int, default=2,
+    parser.add_argument('--iterations', type=int, default=None,
                       help='Number of iterations to run (default: run forever)')
     parser.add_argument('--fade-min', type=float, default=2.0,
                       help='Minimum fade duration in seconds (default: 2.0)')
