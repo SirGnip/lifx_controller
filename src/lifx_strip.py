@@ -14,6 +14,37 @@ MULTI_ZONE_LIGHTS = (
 )
 
 
+async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs):
+    """Retry an async function on failure.
+    
+    Args:
+        func: The async function to retry
+        *func_args: Positional arguments to pass to the function
+        max_retries: Maximum number of retry attempts (default: 3)
+        delay: Initial delay between retries in seconds (default: 0.1)
+        **func_kwargs: Keyword arguments to pass to the function
+        
+    Returns:
+        The result of the function if successful
+        
+    Raises:
+        Exception: The last exception if all retries fail
+    """
+    last_exception = None
+    for attempt in range(max_retries + 1):  # +1 for the initial attempt
+        try:
+            return func(*func_args, **func_kwargs)
+        except Exception as e:
+            print(f'ERROR with RETRY: {attempt + 1}/{max_retries} {type(e)} {e}')
+            last_exception = e
+            if attempt < max_retries:
+                await asyncio.sleep((attempt + 1) *delay)  # increase delay time with each retry
+    
+    # If we get here, all retries failed
+    print('ERROR. Exhausted retries. Allowing exception to propagate.')
+    raise last_exception
+
+
 def dump():
     api, lights = _setup()
     for x in lights:
@@ -139,22 +170,6 @@ def cycle_zone(zone_idx):
     strip.set_power(False)
 
 
-def main():
-    dump()
-    # set_power(False)
-    # set_power(True)
-    # reset_white()
-    # reset_dark()
-    # reset_black()
-    # cycle()
-    # cycle_zone(5)
-    # cycle_zone(7)
-    # fade(15)
-    # fade2(16, lifxlan.BLUE, 3)
-    # fade2(5, lifxlan.ORANGE, 2)
-    # fade2(12, lifxlan.PURPLE, 4)
-
-
 async def async_fade(strip, zone_idx, color, iterations, delay):
     c_dark = color.copy()
     c_bright = color.copy()
@@ -170,6 +185,7 @@ async def async_fade(strip, zone_idx, color, iterations, delay):
         strip.set_zone_color(zone_idx, zone_idx, c_dark, apply=True, duration=half_delay * 1000)
         await asyncio.sleep(half_delay)
 
+
 async def base_fade(strip, zone_idx, color, delay):
     half_delay = delay / 2
 
@@ -180,10 +196,9 @@ async def base_fade(strip, zone_idx, color, delay):
         c_dark[2] = 0
 
         rapid = False
-        strip.set_zone_color(zone_idx, zone_idx, c_dark, apply=True, rapid=rapid)
-        strip.set_zone_color(zone_idx, zone_idx, color, apply=True, duration=half_delay * 1000, rapid=rapid)
+        await async_retry(strip.set_zone_color, zone_idx, zone_idx, color, apply=True, duration=half_delay * 1000, rapid=rapid)
         await asyncio.sleep(half_delay)
-        strip.set_zone_color(zone_idx, zone_idx, c_dark, apply=True, duration=half_delay * 1000, rapid=rapid)
+        await async_retry(strip.set_zone_color, zone_idx, zone_idx, c_dark, apply=True, duration=half_delay * 1000, rapid=rapid)
         await asyncio.sleep(half_delay)
 
 
@@ -266,6 +281,10 @@ async def async_main_both(discover, iterations, fade_min, fade_max, colors):
     try:
         all_tasks = []
         for strip in strips:
+            # DEBUG
+            # if strip.get_mac_addr() != MULTI_ZONE_LIGHTS[1][0]:
+            #     print('Skipping non-target strip')
+            #     continue
             all_zones = strip.get_color_zones()
             print(_strip_summary_label(strip))
             strip.set_power(True)
@@ -276,7 +295,7 @@ async def async_main_both(discover, iterations, fade_min, fade_max, colors):
         
         await asyncio.gather(*all_tasks)
     except Exception as e:
-        print('Got error:', e)
+        print('ERROR:', type(e), e)
     finally:
         print('Had an expected exit or an error. Powering off lights.')
         for strip in strips:
@@ -301,7 +320,20 @@ def parse_args():
 
 
 if __name__ == '__main__':
-    # main()
+    # dump()
+    # set_power(False)
+    # set_power(True)
+    # reset_white()
+    # reset_dark()
+    # reset_black()
+    # cycle()
+    # cycle_zone(5)
+    # cycle_zone(7)
+    # fade(15)
+    # fade2(16, lifxlan.BLUE, 3)
+    # fade2(5, lifxlan.ORANGE, 2)
+    # fade2(12, lifxlan.PURPLE, 4)
+
     # asyncio.run(async_main())
     # asyncio.run(async_main2())
     # asyncio.run(async_main_both())
