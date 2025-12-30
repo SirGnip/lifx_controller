@@ -14,6 +14,12 @@ MULTI_ZONE_LIGHTS = (
 )
 
 
+def dump():
+    api, lights = _setup()
+    for x in lights:
+        print(x)
+
+
 def _setup(discover=True):
     api = lifxlan.LifxLAN()
     if discover:
@@ -134,7 +140,8 @@ def cycle_zone(zone_idx):
 
 
 def main():
-    set_power(False)
+    dump()
+    # set_power(False)
     # set_power(True)
     # reset_white()
     # reset_dark()
@@ -170,12 +177,11 @@ async def base_fade(strip, zone_idx, color, delay):
         await asyncio.sleep(delay)
     else:
         c_dark = color.copy()
-        c_bright = color.copy()
         c_dark[2] = 0
-        c_bright[2] = 2 ** 16 - 1
 
-        rapid = True
-        strip.set_zone_color(zone_idx, zone_idx, c_bright, apply=True, duration=half_delay * 1000, rapid=rapid)
+        rapid = False
+        strip.set_zone_color(zone_idx, zone_idx, c_dark, apply=True, rapid=rapid)
+        strip.set_zone_color(zone_idx, zone_idx, color, apply=True, duration=half_delay * 1000, rapid=rapid)
         await asyncio.sleep(half_delay)
         strip.set_zone_color(zone_idx, zone_idx, c_dark, apply=True, duration=half_delay * 1000, rapid=rapid)
         await asyncio.sleep(half_delay)
@@ -226,17 +232,30 @@ async def async_main2():
     strip.set_power(False)
 
 
-async def async_main_both(discover, iterations, fade_min, fade_max, colors):
-    # Convert 'none' strings to None
-    colors = [None if c.lower() == 'none' else c for c in colors]
+def _parse_color(color):
+    '''Convert None, LIFX color names, or strings containing 4-tuples into 4-tuples of ints.
 
+    If there isn't a match, explicitly fail.'''
+    if color.upper() == 'NONE':
+        return None
+    try:
+        return getattr(lifxlan, color.upper())
+    except:
+        # Parse 4-tuples (ex: '0,65000,65000,3500')
+        vals = [int(x.strip()) for x in color.split(',')]
+        return vals
+
+
+async def async_main_both(discover, iterations, fade_min, fade_max, colors):
     # logging
     print(f'Starting with {len(colors)} colors: {[c for c in colors]}')
     print(f'Fade duration: {fade_min}-{fade_max} seconds')
     print(f'Iterations: {iterations} {"(infinite)" if iterations is None else ""}')
 
-    # Convert colors to LIFX color names. If they don't have a match, this will explicitly fail.
-    colors = [None if c is None else getattr(lifxlan, c.upper()) for c in colors]
+    # Parse input into the list of 4-tuples that LIFX expects
+    colors = [_parse_color(c) for c in colors]
+    for c in colors:
+        print('  Color:', c)
 
     # Setup LIFX API
     api, lights = _setup(discover=discover)
