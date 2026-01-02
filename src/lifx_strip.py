@@ -8,6 +8,7 @@ import lifxlan
 import asyncio
 
 
+RESTART_DELAY = 5 * 60  # seconds
 MULTI_ZONE_LIGHTS = (
     ('d0:73:d5:77:29:56', '192.168.1.30'),
     ('d0:73:d5:77:3f:ae', '192.168.1.31')
@@ -38,7 +39,7 @@ async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs)
             print(f'ERROR with RETRY: {attempt + 1}/{max_retries} {type(e)} {e}')
             last_exception = e
             if attempt < max_retries:
-                await asyncio.sleep((attempt + 1) *delay)  # increase delay time with each retry
+                await asyncio.sleep((attempt + 1) * delay)  # increase delay time with each retry
     
     # If we get here, all retries failed
     print('ERROR. Exhausted retries. Allowing exception to propagate.')
@@ -272,36 +273,39 @@ async def async_main_both(discover, iterations, fade_min, fade_max, colors):
     for c in colors:
         print('  Color:', c)
 
-    # Setup LIFX API
-    api, lights = _setup(discover=discover)
-    strips = [d for d in lights if d.supports_multizone()]
-    print(f'Found {len(strips)} strips')
+    while True:
+        print('-------------------- Startup...')
 
-    # Schedule tasks to control fades (one async task controls each LIFX zone on each string of lights)
-    try:
-        all_tasks = []
-        for strip in strips:
-            # DEBUG
-            # if strip.get_mac_addr() != MULTI_ZONE_LIGHTS[1][0]:
-            #     print('Skipping non-target strip')
-            #     continue
-            all_zones = strip.get_color_zones()
-            print(_strip_summary_label(strip))
-            strip.set_power(True)
-            tasks = [asyncio.create_task(async_zone_fader(strip, idx, iterations, fade_min, fade_max, colors))
-                    for idx in range(len(all_zones))]
-            print(f'Created {len(tasks)} tasks for {strip.get_label()}')
-            all_tasks += tasks
-        
-        await asyncio.gather(*all_tasks)
-    except Exception as e:
-        print('ERROR:', type(e), e)
-    finally:
-        print('Had an expected exit or an error. Powering off lights.')
-        for strip in strips:
-            strip.set_power(False)
+        # Setup LIFX API
+        api, lights = _setup(discover=discover)
+        strips = [d for d in lights if d.supports_multizone()]
+        # strips = [d for d in strips if d.get_mac_addr() == MULTI_ZONE_LIGHTS[1][0]]  # DEBUGGING - use one strip
+        print(f'Found {len(strips)} strips')
 
-    print('Done')
+        # Schedule tasks to control fades (one async task controls each LIFX zone on each string of lights)
+        try:
+            all_tasks = []
+            for strip in strips:
+                all_zones = strip.get_color_zones()
+                print(_strip_summary_label(strip))
+                strip.set_power(True)
+                tasks = [asyncio.create_task(async_zone_fader(strip, idx, iterations, fade_min, fade_max, colors))
+                         for idx in range(len(all_zones))]
+                print(f'Created {len(tasks)} tasks for {strip.get_label()}')
+                all_tasks += tasks
+
+            await asyncio.gather(*all_tasks)
+        except Exception as e:
+            print('TOP LEVEL ERROR', type(e), e)
+
+        if iterations is not None:
+            print('Requested iterations are complete. Exiting.')
+            break
+
+        print(f'Sleeping for {RESTART_DELAY} seconds before full restart...')
+        time.sleep(RESTART_DELAY)
+
+    print('App is exiting')
 
 
 def parse_args():
