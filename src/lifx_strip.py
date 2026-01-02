@@ -7,7 +7,9 @@ import random
 import time
 import lifxlan
 import asyncio
+import logging
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
 RESTART_DELAY = 5 * 60  # seconds
 MULTI_ZONE_LIGHTS = (
@@ -37,13 +39,13 @@ async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs)
         try:
             return func(*func_args, **func_kwargs)
         except Exception as e:
-            print(f'ERROR with RETRY: {attempt + 1}/{max_retries} {type(e)} {e}')
+            logging.info(f'ERROR with RETRY: {attempt + 1}/{max_retries} {type(e)} {e}')
             last_exception = e
             if attempt < max_retries:
                 await asyncio.sleep((attempt + 1) * delay)  # increase delay time with each retry
     
     # If we get here, all retries failed
-    print('ERROR. Exhausted retries. Allowing exception to propagate.')
+    logging.info('ERROR. Exhausted retries. Allowing exception to propagate.')
     raise last_exception
 
 
@@ -56,13 +58,13 @@ def dump():
 def _setup(discover=True):
     api = lifxlan.LifxLAN()
     if discover:
-        print('Discovering lights')
+        logging.info('Discovering lights')
         lights = api.get_lights()
     else:
-        print(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list of IP/MAC')
+        logging.info(f'Creating {len(MULTI_ZONE_LIGHTS)} lights from explicit list of IP/MAC')
         lights = [lifxlan.MultiZoneLight(*dat) for dat in MULTI_ZONE_LIGHTS]
     for x in lights:
-        print(_device_summary_label(x))
+        logging.info(_device_summary_label(x))
     lights.sort(key=lambda b: b.get_label())
     return api, lights
 
@@ -265,48 +267,48 @@ def _parse_color(color):
 
 async def async_main_both(discover, iterations, fade_min, fade_max, colors):
     # logging
-    print(f'Starting with {len(colors)} colors: {[c for c in colors]}')
-    print(f'Fade duration: {fade_min}-{fade_max} seconds')
-    print(f'Iterations: {iterations} {"(infinite)" if iterations is None else ""}')
+    logging.info(f'Starting with {len(colors)} colors: {[c for c in colors]}')
+    logging.info(f'Fade duration: {fade_min}-{fade_max} seconds')
+    logging.info(f'Iterations: {iterations} {"(infinite)" if iterations is None else ""}')
 
     # Parse input into the list of 4-tuples that LIFX expects
     colors = [_parse_color(c) for c in colors]
     for c in colors:
-        print('  Color:', c)
+        logging.info(f'  Color: {c}')
 
     while True:
-        print('-------------------- Startup...')
+        logging.info('-------------------- Startup...')
 
         # Setup LIFX API
         api, lights = _setup(discover=discover)
         strips = [d for d in lights if d.supports_multizone()]
         # strips = [d for d in strips if d.get_mac_addr() == MULTI_ZONE_LIGHTS[1][0]]  # DEBUGGING - use one strip
-        print(f'Found {len(strips)} strips')
+        logging.info(f'Found {len(strips)} strips')
 
         # Schedule tasks to control fades (one async task controls each LIFX zone on each string of lights)
         try:
             all_tasks = []
             for strip in strips:
                 all_zones = strip.get_color_zones()
-                print(_strip_summary_label(strip))
+                logging.info(_strip_summary_label(strip))
                 strip.set_power(True)
                 tasks = [asyncio.create_task(async_zone_fader(strip, idx, iterations, fade_min, fade_max, colors))
                          for idx in range(len(all_zones))]
-                print(f'Created {len(tasks)} tasks for {strip.get_label()}')
+                logging.info(f'Created {len(tasks)} tasks for {strip.get_label()}')
                 all_tasks += tasks
 
             await asyncio.gather(*all_tasks)
         except Exception as e:
-            print('TOP LEVEL ERROR', type(e), e)
+            logging.info('TOP LEVEL ERROR', type(e), e)
 
         if iterations is not None:
-            print('Requested iterations are complete. Exiting.')
+            logging.info('Requested iterations are complete. Exiting.')
             break
 
-        print(f'Sleeping for {RESTART_DELAY} seconds before full restart...')
+        logging.info(f'Sleeping for {RESTART_DELAY} seconds before full restart...')
         time.sleep(RESTART_DELAY)
 
-    print('App is exiting')
+    logging.info('App is exiting')
 
 
 def parse_args():
@@ -469,7 +471,7 @@ if __name__ == '__main__':
 
     # Command line interface
     args = parse_args()
-    print(args)
+    logging.info(f'Command line args: {args}')
     asyncio.run(async_main_both(
         discover=args.discover,
         iterations=args.iterations,
