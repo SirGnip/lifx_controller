@@ -2,6 +2,7 @@
 Initial controller for LIFX Strip lights supporting basic functionality
 '''
 import argparse
+import datetime
 import random
 import time
 import lifxlan
@@ -322,6 +323,129 @@ def parse_args():
                       help='List of color names to use (e.g., "red blue yellow none")')
     return parser.parse_args()
 
+def cmd():
+    """Simple command-line interface for controlling LIFX lights.
+    
+    Commands:
+      on                 - Turn on all lights
+      off                - Turn off all lights
+      color COLOR        - Set all zones to COLOR (e.g., 'red', 'blue', '0,65535,65535,3500')
+      color ZONE COLOR   - Set specific ZONE to COLOR
+      brightness VALUE   - Set brightness (0-100, e.g., 'brightness 50' for 50%)
+      quit               - Exit the program
+    """
+    
+    def logg(msg):
+        now = datetime.datetime.now()
+        print(f'{now.strftime("%Y-%m-%d %H:%M:%S")}.{now.microsecond:06d} {msg}')
+
+    duration = 200  # ms
+
+    # Initialize lights
+    logg("Initializing LIFX lights...")
+    try:
+        api, lights = _setup(discover=True)
+        strips = [d for d in lights if d.supports_multizone()]
+        if not strips:
+            print("No multi-zone LIFX devices found!")
+            return
+
+        # List available strips
+        print("\nFound strip lights:")
+        for i, strip in enumerate(strips, 1):
+            print(f"[{i}] {strip.get_label()} - {strip.get_mac_addr()} - {strip.get_ip_addr()}")
+
+        # Let user select a strip
+        while True:
+            try:
+                selection = input("\nSelect strip number (or Enter for first): ").strip()
+                if not selection:
+                    strip = strips[0]
+                    break
+
+                idx = int(selection) - 1
+                if 0 <= idx < len(strips):
+                    strip = strips[idx]
+                    break
+                print(f"Please enter a number between 1 and {len(strips)}")
+            except ValueError:
+                print("Please enter a valid number")
+
+        logg(f"Controlling strip: {strip.get_label()} ({strip.get_mac_addr()}) at {strip.get_ip_addr()}")
+
+        while True:
+            try:
+                cmd = input("> ").strip()
+                if not cmd:
+                    continue
+                    
+                parts = cmd.lower().split()
+                command = parts[0]
+                
+                if command == 'quit':
+                    logg("Exiting...")
+                    break
+                    
+                elif command == 'on':
+                    strip.set_power(True)
+                    logg("Turned lights ON")
+                    
+                elif command == 'off':
+                    strip.set_power(False)
+                    logg("Turned lights OFF")
+                    
+                elif command == 'bright':
+                    if len(parts) != 2:
+                        print("Usage: bright VALUE (0-100)")
+                        continue
+                    try:
+                        percent = int(parts[1])
+                        if not 0 <= percent <= 100:
+                            print("Brightness must be between 0 and 100")
+                            continue
+                        brightness = int((percent / 100) * 65535)
+                        logg(f"Set brightness to {percent}% ({brightness}/65535)")
+                        strip.set_brightness(brightness, duration=duration)
+                    except ValueError:
+                        print("Invalid brightness value. Please use a number between 0 and 100")
+                
+                elif command == 'color':
+                    if len(parts) < 2:
+                        print("Usage: color COLOR or color ZONE COLOR")
+                        continue
+                        
+                    # Handle 'color ZONE COLOR' format
+                    if len(parts) >= 3 and parts[1].isdigit():
+                        zone = int(parts[1])
+                        try:
+                            color_str = ' '.join(parts[2:])
+                            color = _parse_color(color_str)
+                            strip.set_zone_color(zone, zone, color, apply=True, duration=duration)
+                            logg(f"Set zone {zone} to {color_str}")
+                        except Exception as e:
+                            print(f"Error setting zone color: {e}")
+                    # Handle 'color COLOR' format
+                    else:
+                        try:
+                            color_str = ' '.join(parts[1:])
+                            color = _parse_color(color_str)
+                            strip.set_color(color, duration=duration)
+                            logg(f"Set all zones to {color_str}")
+                        except Exception as e:
+                            print(f"Error setting color: {e}")
+                            print("Valid colors: red, blue, green, etc. or HSBK values like '0,65535,65535,3500'")
+                    
+                else:
+                    print("Unknown command. Available commands: on, off, color, quit")
+                    
+            except KeyboardInterrupt:
+                print("\nUse 'quit' to exit")
+            except Exception as e:
+                print(f"Error: {e}")
+                
+    except Exception as e:
+        print(f"Failed to initialize LIFX: {e}")
+
 
 if __name__ == '__main__':
     # dump()
@@ -337,6 +461,7 @@ if __name__ == '__main__':
     # fade2(16, lifxlan.BLUE, 3)
     # fade2(5, lifxlan.ORANGE, 2)
     # fade2(12, lifxlan.PURPLE, 4)
+    # cmd()  # run command line interface
 
     # asyncio.run(async_main())
     # asyncio.run(async_main2())
