@@ -4,14 +4,14 @@ Initial controller for LIFX Strip lights supporting basic functionality
 import argparse
 import datetime
 import random
-import time
 import lifxlan
 import asyncio
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-RESTART_DELAY = 5 * 60  # seconds
+RESTART_DELAY = 20
+STRIP_COUNT_POLLING_DELAY = 2 * 60  # 2 minutes
 MULTI_ZONE_LIGHTS = (
     ('d0:73:d5:77:29:56', '192.168.1.30'),
     ('d0:73:d5:77:3f:ae', '192.168.1.31')
@@ -19,7 +19,7 @@ MULTI_ZONE_LIGHTS = (
 
 
 async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs):
-    """Retry an async function on failure.
+    """Retry a standard function on failure with an async loop.
     
     Args:
         func: The async function to retry
@@ -156,6 +156,30 @@ def _parse_color(color):
         return vals
 
 
+async def strip_count_watcher(api):
+    '''Poll the LIFX API to see how many multizone light strips there are. Throw exception if a change is detected.'''
+    try:
+        count = None
+        while True:
+            await asyncio.sleep(STRIP_COUNT_POLLING_DELAY)
+            tasks = [t for t in asyncio.all_tasks() if not t.done()]
+
+            lights = api.get_lights()
+            strips = [d for d in lights if d.supports_multizone()]
+            new_count = len(strips)
+            logging.info(f"WATCHER: Checking light counts: {new_count} with {len(tasks)} tasks")
+            if count is None:
+                count = new_count
+            else:
+                if count != new_count:
+                    msg = f"WATCHER: Triggered restart. A change was detected in number of lights from {count} to {new_count}"
+                    logging.warning(msg)
+                    raise Exception(msg)
+    except Exception as e:
+        logging.error(str(e))
+        raise
+
+
 async def async_main(discover, iterations, fade_min, fade_max, colors):
     # logging
     logging.info(f'Starting with {len(colors)} colors: {[c for c in colors]}')
@@ -188,16 +212,29 @@ async def async_main(discover, iterations, fade_min, fade_max, colors):
                 logging.info(f'Created {len(tasks)} tasks for {strip.get_label()}')
                 all_tasks += tasks
 
+            all_tasks.append(asyncio.create_task(strip_count_watcher(api)))
             await asyncio.gather(*all_tasks)
         except Exception as e:
-            logging.info('TOP LEVEL ERROR', type(e), e)
+            logging.info(f'TOP LEVEL ERROR {type(e)} {e}')
 
         if iterations is not None:
             logging.info('Requested iterations are complete. Exiting.')
             break
 
+        for t in all_tasks:
+            logging.info(f"Querying task state: {t}")
+            if not t.done():
+                logging.info(f"Cancelling task: {t}")
+                success = t.cancel()
+                logging.info(f"Cancellation {success} for {t}")
+
+        await asyncio.sleep(1.0)
+        tasks = [t for t in asyncio.all_tasks() if not t.done()]
+        logging.info(f'There are {len(tasks)} remaining that are not Done')
         logging.info(f'Sleeping for {RESTART_DELAY} seconds before full restart...')
-        time.sleep(RESTART_DELAY)
+        await asyncio.sleep(RESTART_DELAY)
+        tasks = [t for t in asyncio.all_tasks() if not t.done()]
+        logging.info(f'There are {len(tasks)} remaining that are not Done')
 
     logging.info('App is exiting')
 
