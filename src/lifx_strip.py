@@ -18,7 +18,7 @@ MULTI_ZONE_LIGHTS = (
 )
 
 
-async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs):
+async def async_retry(func, *func_args, max_retries=8, delay=0.5, **func_kwargs):
     """Retry a standard function on failure with an async loop.
     
     Args:
@@ -35,15 +35,16 @@ async def async_retry(func, *func_args, max_retries=3, delay=0.1, **func_kwargs)
         Exception: The last exception if all retries fail
     """
     last_exception = None
-    for attempt in range(max_retries + 1):  # +1 for the initial attempt
+    for attempt in range(max_retries):
         try:
             return func(*func_args, **func_kwargs)
         except Exception as e:
             logging.info(f'ERROR with RETRY: {attempt + 1}/{max_retries} {type(e)} {e}')
             last_exception = e
             if attempt < max_retries:
-                await asyncio.sleep((attempt + 1) * delay)  # increase delay time with each retry
-    
+                retry_delay = ((attempt + 1) ** 3) * delay
+                await asyncio.sleep(retry_delay)  # increase delay time with each retry
+
     # If we get here, all retries failed
     logging.info('ERROR. Exhausted retries. Allowing exception to propagate.')
     raise last_exception
@@ -195,7 +196,7 @@ async def async_main(discover, iterations, fade_min, fade_max, colors):
         logging.info('-------------------- Startup...')
 
         # Setup LIFX API
-        api, lights = _setup(discover=discover)
+        api, lights = await async_retry(_setup, discover=discover)
         strips = [d for d in lights if d.supports_multizone()]
         # strips = [d for d in strips if d.get_mac_addr() == MULTI_ZONE_LIGHTS[1][0]]  # DEBUGGING - use one strip
         logging.info(f'Found {len(strips)} strips')
@@ -230,11 +231,11 @@ async def async_main(discover, iterations, fade_min, fade_max, colors):
 
         await asyncio.sleep(1.0)
         tasks = [t for t in asyncio.all_tasks() if not t.done()]
-        logging.info(f'There are {len(tasks)} remaining that are not Done')
+        logging.info(f'There are {len(tasks)} remaining tasks that are not Done')
         logging.info(f'Sleeping for {RESTART_DELAY} seconds before full restart...')
         await asyncio.sleep(RESTART_DELAY)
         tasks = [t for t in asyncio.all_tasks() if not t.done()]
-        logging.info(f'There are {len(tasks)} remaining that are not Done')
+        logging.info(f'There are {len(tasks)} remaining tasks that are not Done')
 
     logging.info('App is exiting')
 

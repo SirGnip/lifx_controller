@@ -1,4 +1,4 @@
-Controller for LIFX lightstrip zone lines.
+Controller for LIFX lightstrip zone lights.
 
 Generates some basic effects.
 
