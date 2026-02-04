@@ -13,14 +13,4 @@ Generates some basic effects.
 
 # Packaging
 
-    # Build docker image
-    docker build -t lifx_controller . --progress=plain
-    
-    # Run with default startup command
-    docker run lifx_controller
-
-    # Run with custom startup command
-    docker run lifx_controller python3 -u /myapp/src/lifx_strip.py --discover
-
-    # Save to .tar file for upload to container manager
-    docker save lifx_controller -o lifx_controller.tar
+To build and package, see the `build_docker.sh` script

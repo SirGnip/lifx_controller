@@ -17,5 +17,7 @@ docker images
 echo
 ls -l lifx_controller.tar
 
-hdr "Testing"
+hdr "Testing Examples"
+echo "(Run manually...)"
+echo "docker run lifx_controller"
 echo "docker run lifx_controller python3 -u /myapp/src/lifx_strip.py"
